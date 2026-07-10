@@ -1,0 +1,25 @@
+.DS_Store
+.bundle
+.byebug*
+.ruby-lsp
+.history
+.vscode
+.yardoc
+*.log
+dump.rdb
+appendonlydir
+/doc
+/pkg
+/tmp
+/vendor
+*.gem
+Gemfile.lock
+
+# WIP or temp dev files with uppercase names
+[A-Z]*.md
+
+# Exclusions
+!README.md
+!CHANGELOG.md
+!AGENTS.md
+!LICENSE.txt

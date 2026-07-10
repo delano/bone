@@ -1,65 +1,19 @@
-require "rubygems"
-require "rake"
-require "rake/clean"
-require 'yaml'
+# frozen_string_literal: true
 
-begin
-  require 'hanna/rdoctask'
-rescue LoadError
-  require 'rake/rdoctask'
-end
- 
-config = YAML.load_file("VERSION.yml")
-task :default => ["build"]
-CLEAN.include [ 'pkg', 'doc' ]
-name = "bone"
+# Bundler's standard gem tasks: build / install / release (and release:*).
+# `bundle exec rake release` is what the release-gem.yml workflow invokes.
+require 'bundler/gem_tasks'
 
-begin
-  require "jeweler"
-  Jeweler::Tasks.new do |gem|
-    gem.version = "#{config[:MAJOR]}.#{config[:MINOR]}.#{config[:PATCH]}"
-    gem.name = name
-    gem.rubyforge_project = gem.name
-    gem.summary = "Rudimentary Redis over HTTP(S)"
-    gem.description = gem.summary
-    gem.email = "delano@solutious.com"
-    gem.homepage = "https://github.com/solutious/bone"
-    gem.authors = ["Delano Mandelbaum"]
-    gem.add_dependency("familia",            ">= 0.6.1")
-    gem.add_dependency("em-http-request")
-  end
-  Jeweler::GemcutterTasks.new
-rescue LoadError
-  puts "Jeweler (or a dependency) not available. Install it with: sudo gem install jeweler"
+desc 'Run the Tryouts test suite (ensures a UTF-8 locale)'
+task :test do
+  ENV['LANG'] ||= 'C.UTF-8'
+  ENV['LC_ALL'] ||= 'C.UTF-8'
+  sh 'bundle exec try -v try/'
 end
 
-
-Rake::RDocTask.new do |rdoc|
-  version = "#{config[:MAJOR]}.#{config[:MINOR]}.#{config[:PATCH]}.#{config[:BUILD]}"
-  rdoc.rdoc_dir = "doc"
-  rdoc.title = "#{name} #{version}"
-  rdoc.rdoc_files.include("README*")
-  rdoc.rdoc_files.include("LICENSE.txt")
-  rdoc.rdoc_files.include("bin/*.rb")
-  rdoc.rdoc_files.include("lib/**/*.rb")
+desc 'Run RuboCop'
+task :rubocop do
+  sh 'bundle exec rubocop'
 end
 
-
-# Rubyforge Release / Publish Tasks ==================================
-
-#about 'Publish website to rubyforge'
-task 'publish:rdoc' => 'doc/index.html' do
-  #sh "scp -rp doc/* rubyforge.org:/var/www/gforge-projects/#{name}/"
-end
-
-#about 'Public release to rubyforge'
-task 'publish:gem' => [:package] do |t|
-  sh <<-end
-    rubyforge add_release -o Any -a CHANGES.txt -f -n README.md #{name} #{name} #{@spec.version} pkg/#{name}-#{@spec.version}.gem &&
-    rubyforge add_file -o Any -a CHANGES.txt -f -n README.md #{name} #{name} #{@spec.version} pkg/#{name}-#{@spec.version}.tgz 
-  end
-end
-
-
-
-
+task default: :test
