@@ -1,171 +1,244 @@
+# frozen_string_literal: true
 
-unless defined?(BONE_HOME)
-  BONE_HOME = File.expand_path(File.join(File.dirname(__FILE__), '..') )
-end
-
-local_libs = %w{familia}
-local_libs.each { |dir| 
-  a = File.join(BONE_HOME, '..', '..', 'opensource', dir, 'lib')
-  $:.unshift a
-}
-
-require 'familia'
-require 'base64'
+require 'securerandom'
 require 'openssl'
-require 'time'
+require 'uri'
 
+require_relative 'bone/version'
+require_relative 'bone/errors'
+require_relative 'bone/env'
+require_relative 'bone/backends'
+
+# Bone — a small client for remote key/value storage, used here as a store of
+# remote environment variables for services such as staging.
+#
+# A {Bone} instance is a *client* bound to a token (and optional secret). The
+# token namespaces a bag of variables in the configured backend
+# (`memory://` or `redis://`/`valkey://`). Class-level methods operate through
+# an ambient client built from +Bone.token+ / +Bone.secret+ (which default to
+# the +BONE_TOKEN+ / +BONE_SECRET+ environment variables).
+#
+# @example Library usage
+#   Bone.source = 'redis://127.0.0.1:6379/0'
+#   token, secret = Bone.generate
+#   Bone.credentials = "#{token}:#{secret}"
+#   Bone[:database_url] = 'postgres://…'
+#   Bone[:database_url]        # => "postgres://…"
+#   Bone.env                   # => { "database_url" => "postgres://…" }
 class Bone
-  module VERSION
-    def self.to_s
-      load_config
-      [@version[:MAJOR], @version[:MINOR], @version[:PATCH]].join('.')
-    end
-    alias_method :inspect, :to_s
-    def self.load_config
-      require 'yaml'
-      @version ||= YAML.load_file(File.join(BONE_HOME, 'VERSION.yml'))
-    end
-  end
-end
+  DEFAULT_SOURCE = 'redis://127.0.0.1:6379/0'
 
+  # Characters used when generating tokens (unambiguous alphanumerics).
+  TOKEN_ALPHABET = [*'A'..'Z', *'a'..'z', *'0'..'9'].freeze
 
-class Bone
-  unless defined?(Bone::APIVERSION)
-    APIVERSION = 'v2'.freeze 
-    SECRETCHAR = [('a'..'z'),('A'..'Z'),(0..9)].map(&:to_a).flatten.freeze
-  end
-  @source = URI.parse(ENV['BONE_SOURCE'] || 'redis://127.0.0.1:6379/')
-  @apis = {}
-  @digest_type = OpenSSL::Digest::SHA256
-  class Problem < RuntimeError; end
-  class NoToken < Problem; end  
   class << self
-    attr_accessor :debug
-    attr_reader :apis, :api, :source, :digest_type
     attr_writer :token, :secret
-    
-    def source= v
-      @source = URI.parse v
-      select_api
+
+    # -- configuration -----------------------------------------------------
+
+    # @return [URI] the current source (defaults to $BONE_SOURCE or Redis).
+    def source
+      @source ||= URI.parse(ENV['BONE_SOURCE'] || DEFAULT_SOURCE)
     end
-    alias_method :src=, :source=
-    alias_method :src, :source
-    
-    # e.g.
-    #
-    #  Bone.cred = 'token:secret'
-    #
-    def credentials= token
-      @token, @secret = *token.split(':')
+
+    # Set the source and (re)select the matching backend.
+    # @param value [String, URI]
+    def source=(value)
+      @source = value.is_a?(URI) ? value : URI.parse(value.to_s)
+      select_backend
     end
-    alias_method :cred=, :credentials=
-    
+    alias src source
+    alias src= source=
+
+    # @return [#connect] the backend for the current source.
+    def backend
+      @backend ||= select_backend
+    end
+
+    def select_backend
+      scheme = source.scheme.to_s
+      klass = Backends.for(scheme)
+      raise UnknownBackend, "No backend for #{scheme.inspect} (#{source})" if klass.nil?
+
+      @backend = klass.connect(source)
+    end
+
+    # -- credentials -------------------------------------------------------
+
     def token
-      @token || ENV['BONE_TOKEN']
-    end
-    
-    def secret 
-      @secret || ENV['BONE_SECRET']
-    end
-    
-    def info *msg
-      STDERR.puts *msg
-    end
-    
-    def ld *msg
-      info *msg if debug
-    end
-    
-    # Stolen from Rack::Utils which stole it from Camping.
-    def uri_escape s
-      s.to_s.gsub(/([^ a-zA-Z0-9_.-]+)/n) {
-        '%'+$1.unpack('H2'*bytesize($1)).join('%').upcase
-      }.tr(' ', '+')
-    end
-    
-    # Stolen from Rack::Utils which stole it from Camping.
-    def uri_unescape s
-      s.tr('+', ' ').gsub(/((?:%[0-9a-fA-F]{2})+)/n){
-        [$1.delete('%')].pack('H*')
-      }
-    end
-    
-    # Return the bytesize of String; uses String#size under Ruby 1.8 and
-    # String#bytesize under 1.9.
-    if ''.respond_to?(:bytesize)
-      def bytesize s
-        s.bytesize
-      end
-    else
-      def bytesize s
-        s.size
-      end
-    end
-    
-    def is_sha1? val
-      val.to_s.match /\A[0-9a-f]{40}\z/
+      @token || ENV.fetch('BONE_TOKEN', nil)
     end
 
-    def is_sha256? val
-      val.to_s.match /\A[0-9a-f]{64}\z/
+    def secret
+      @secret || ENV.fetch('BONE_SECRET', nil)
     end
 
-    def digest val, type=nil
-      type ||= @digest_type
-      type.hexdigest val
+    # Accept a combined "token:secret" credential string.
+    def credentials=(pair)
+      @token, @secret = pair.to_s.split(':', 2)
     end
-    
-    def random_token
-      p1 = (0...21).map{ SECRETCHAR[rand(SECRETCHAR.length)] }.join
-      p2 = Bone.api.token_suffix
-      p3 = (0...2).map{ SECRETCHAR[rand(SECRETCHAR.length)] }.join
-      [p1,p2,p3].join.upcase
+    alias cred= credentials=
+
+    # Build a client. Defaults to the ambient token/secret.
+    def new(token = self.token, secret = self.secret)
+      Client.new(token, secret)
     end
-    
-    def random_secret 
-      src = [SECRETCHAR, %w'* ^ $ ! / . - _ + %'].flatten
-      p1 = (0...2).map{ SECRETCHAR[rand(SECRETCHAR.length)] }.join
-      p2 = (0...60).map{ src[rand(src.length)] }.join
-      p3 = (0...2).map{ SECRETCHAR[rand(SECRETCHAR.length)] }.join      
-      [p1,p2,p3].join
+
+    # -- token lifecycle ---------------------------------------------------
+
+    # @return [Array(String, String)] a freshly generated [token, secret].
+    def generate
+      backend.generate
     end
-    
-    def select_api
-      begin
-        @api = Bone.apis[Bone.source.scheme.to_sym]
-        raise RuntimeError, "Bad source: #{Bone.source}" if api.nil?
-        @api.connect
-      rescue => ex
-        Bone.info "#{ex.class}: #{ex.message}", ex.backtrace
-        exit
-      end
+
+    def register(token, secret)
+      backend.register(token, secret)
     end
-    
-    def register_api scheme, klass
-      Bone.apis[scheme.to_sym] = klass
+
+    def destroy(token = self.token, secret = self.secret)
+      backend.destroy(token, secret)
     end
-    
-    # <tt>require</tt> a library from the vendor directory.
-    # The vendor directory should be organized such
-    # that +name+ and +version+ can be used to create
-    # the path to the library. 
-    #
-    # e.g.
-    # 
-    #     vendor/httpclient-2.1.5.2/httpclient
-    #
-    def require_vendor name, version
-      path = File.join(BONE_HOME, 'vendor', "#{name}-#{version}", 'lib')
-      $:.unshift path
-      Bone.ld "REQUIRE VENDOR: ", path
-      require name
+
+    def token?(token = self.token)
+      return false if token.nil?
+
+      backend.token?(token)
+    end
+
+    # -- ambient-client delegation ----------------------------------------
+
+    def get(name)
+      new.get(name)
+    end
+    alias [] get
+
+    def set(name, value)
+      new.set(name, value)
+    end
+    alias []= set
+
+    def delete(name)
+      new.delete(name)
+    end
+
+    def key?(name)
+      new.key?(name)
+    end
+
+    def keys(filter = nil)
+      new.keys(filter)
+    end
+
+    # Remote environment variables for the ambient token.
+    def env
+      new.to_h
+    end
+
+    def export
+      Env.export(env)
+    end
+
+    def dump
+      Env.dump(env)
+    end
+
+    def import(source)
+      new.import(source)
+    end
+
+    # Load all of the token's variables into ENV. Returns the names loaded.
+    def load_env!
+      new.load_env!
+    end
+
+    # -- crypto / token helpers -------------------------------------------
+
+    def random_token(length = 26)
+      SecureRandom.alphanumeric(length)
+    end
+
+    def random_secret(bytes = 48)
+      SecureRandom.urlsafe_base64(bytes)
+    end
+
+    def digest(value, type = OpenSSL::Digest::SHA256)
+      type.hexdigest(value.to_s)
     end
   end
-  
-  require 'bone/api'
-  include Bone::API::InstanceMethods
-  extend Bone::API::ClassMethods
-  select_api
+
+  # A client bound to a token/secret pair. Instances are what actually read
+  # and write variables; the class-level API delegates here.
+  class Client
+    attr_reader :token, :secret
+
+    def initialize(token = nil, secret = nil)
+      @token  = token
+      @secret = secret
+    end
+
+    def get(name)
+      backend.get(require_token!, secret, name)
+    end
+    alias [] get
+
+    def set(name, value)
+      backend.set(require_token!, secret, name, value)
+    end
+    alias []= set
+
+    def delete(name)
+      backend.delete(require_token!, secret, name)
+    end
+
+    def key?(name)
+      backend.key?(require_token!, secret, name)
+    end
+
+    # All variable names, optionally filtered by a glob (e.g. "DB_*").
+    def keys(filter = nil)
+      names = backend.keys(require_token!, secret)
+      return names if filter.nil? || filter.to_s.empty? || filter.to_s == '*'
+
+      names.select { |name| File.fnmatch(filter.to_s, name) }
+    end
+
+    # @return [Hash{String => String}] all variables for this token.
+    def to_h
+      backend.all(require_token!, secret)
+    end
+    alias env to_h
+
+    # Import variables from a Hash or dotenv-style String. Returns the names
+    # written.
+    def import(source)
+      vars = source.is_a?(Hash) ? source : Bone::Env.parse(source)
+      vars.each { |name, value| set(name, value) }
+      vars.keys.map(&:to_s)
+    end
+
+    # Copy every stored variable into the process ENV. Returns names loaded.
+    def load_env!
+      to_h.each { |name, value| ENV[name] = value }.keys
+    end
+
+    def export
+      Bone::Env.export(to_h)
+    end
+
+    def dump
+      Bone::Env.dump(to_h)
+    end
+
+    private
+
+    def backend
+      Bone.backend
+    end
+
+    def require_token!
+      raise Bone::NoToken, 'No token set (see Bone.credentials= or $BONE_TOKEN)' if token.nil? || token.to_s.empty?
+
+      token
+    end
+  end
 end
-
-

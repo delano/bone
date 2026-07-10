@@ -1,0 +1,87 @@
+# frozen_string_literal: true
+
+class Bone
+  # Helpers for treating a token's stored keys as remote environment
+  # variables: parsing dotenv-style input and rendering shell/dotenv output.
+  #
+  # These are pure functions over hashes and strings; they perform no I/O and
+  # never touch a backend. {Bone} and {Bone::Client} wire them to storage.
+  module Env
+    LINE = /\A\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*\z/
+    NEEDS_DQUOTE = %r{[^A-Za-z0-9_./@%+=:,-]}
+
+    module_function
+
+    # Parse dotenv-style text into a { name => value } hash.
+    #
+    # Understands blank lines, `#` comments, an optional leading `export`,
+    # and single- or double-quoted values (double quotes honour \n, \t, \\
+    # and \" escapes; single quotes are literal).
+    def parse(text)
+      {}.tap do |vars|
+        text.to_s.each_line do |raw|
+          line = raw.chomp
+          next if line.strip.empty? || line.strip.start_with?('#')
+
+          match = LINE.match(line)
+          next if match.nil?
+
+          vars[match[1]] = unquote(match[2])
+        end
+      end
+    end
+
+    # Render a hash as dotenv-style `KEY=value` lines (sorted, newline-ended).
+    def dump(vars)
+      format_lines(vars) { |k, v| "#{k}=#{dotenv_quote(v)}" }
+    end
+
+    # Render a hash as shell-eval-able `export KEY='value'` lines.
+    #
+    #   eval "$(bone export)"
+    def export(vars)
+      format_lines(vars) { |k, v| "export #{k}=#{shell_single_quote(v)}" }
+    end
+
+    # -- internals -----------------------------------------------------------
+
+    def format_lines(vars)
+      lines = vars.sort_by { |k, _| k.to_s }
+                  .map { |k, v| yield(k.to_s, v.to_s) }
+      "#{lines.join("\n")}\n"
+    end
+
+    def unquote(value)
+      if value.start_with?("'") && value.end_with?("'") && value.length >= 2
+        value[1..-2]
+      elsif value.start_with?('"') && value.end_with?('"') && value.length >= 2
+        value[1..-2].gsub(/\\(.)/) { unescape(::Regexp.last_match(1)) }
+      else
+        value
+      end
+    end
+
+    def unescape(char)
+      { 'n' => "\n", 't' => "\t", 'r' => "\r", '"' => '"', '\\' => '\\' }.fetch(char, char)
+    end
+
+    def dotenv_quote(value)
+      return value unless value.empty? || value.match?(NEEDS_DQUOTE)
+
+      # Block form avoids gsub replacement-string escapes (\\, \0, \1, …).
+      escaped = value.gsub(/[\\"\n\r\t]/) do |char|
+        { '\\' => '\\\\', '"' => '\\"', "\n" => '\\n', "\r" => '\\r', "\t" => '\\t' }[char]
+      end
+      %("#{escaped}")
+    end
+
+    # Wrap in single quotes for POSIX shells, escaping embedded single quotes
+    # via the '\'' idiom. Block form keeps gsub from interpreting \' as the
+    # post-match reference.
+    def shell_single_quote(value)
+      "'#{value.gsub("'") { "'\\''" }}'"
+    end
+
+    private_class_method :format_lines, :unquote, :unescape, :dotenv_quote, :shell_single_quote
+  end
+end
