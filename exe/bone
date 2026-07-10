@@ -1,0 +1,18 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bone/cli'
+
+begin
+  Dry::CLI.new(Bone::CLI).call
+rescue Bone::NoToken => e
+  warn "Invalid token: #{e.message}"
+  warn 'Create one with: bone generate'
+  exit 1
+rescue Bone::Problem => e
+  warn "Error: #{e.message}"
+  exit 1
+rescue Interrupt
+  warn "\nExiting…"
+  exit 130
+end
