@@ -6,6 +6,7 @@
 .vscode
 .yardoc
 *.log
+*.txt
 dump.rdb
 appendonlydir
 /doc
