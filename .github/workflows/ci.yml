@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: "Tryouts (Ruby ${{ matrix.ruby }})"
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    continue-on-error: ${{ matrix.experimental }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["3.2", "3.3", "3.4"]
+        experimental: [false]
+        include:
+          - ruby: "3.5"
+            experimental: true
+
+    services:
+      valkey:
+        image: valkey/valkey:8.1-bookworm
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 3s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+
+      - name: Run the tryouts
+        env:
+          BONE_SOURCE: "redis://127.0.0.1:6379/0"
+        run: bundle exec try -v try/

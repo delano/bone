@@ -1,0 +1,65 @@
+# .rubocop.yml
+
+plugins:
+  - rubocop-performance
+  - rubocop-thread_safety
+
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.2
+  SuggestExtensions: false
+  Exclude:
+    - "try/**/*.rb"
+    - "vendor/**/*"
+    - "tmp/**/*"
+
+# --- Layout -----------------------------------------------------------------
+Layout/LineLength:
+  Max: 120
+
+Layout/HashAlignment:
+  Enabled: false
+
+Layout/DotPosition:
+  EnforcedStyle: leading
+
+# --- Style ------------------------------------------------------------------
+Style/StringLiterals:
+  EnforcedStyle: single_quotes
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+  EnforcedStyle: always_true
+
+Style/Documentation:
+  Enabled: false
+
+Naming/PredicateMethod:
+  Enabled: false
+
+# --- Metrics (kept generous; this is a small library) -----------------------
+Metrics/AbcSize:
+  Enabled: false
+
+Metrics/CyclomaticComplexity:
+  Enabled: false
+
+Metrics/MethodLength:
+  Max: 30
+
+Metrics/ModuleLength:
+  Max: 250
+
+Metrics/ClassLength:
+  Max: 250
+
+# --- Thread safety ----------------------------------------------------------
+# Backends intentionally hold module-level state configured once at startup.
+ThreadSafety/ClassAndModuleAttributes:
+  Enabled: false
+
+ThreadSafety/ClassInstanceVariable:
+  Enabled: false
+
+ThreadSafety/MutableClassInstanceVariable:
+  Enabled: false

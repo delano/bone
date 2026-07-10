@@ -1,0 +1,85 @@
+# Release Gem Workflow
+#
+# Builds and publishes the `bone` gem to RubyGems.org when a GitHub release is
+# published with a semantic version tag (vMAJOR.MINOR.PATCH, e.g. v0.4.0).
+#
+# Uses RubyGems Trusted Publishing (OIDC) — no long-lived API key is stored.
+# See https://guides.rubygems.org/trusted-publishing/
+#
+# One-time setup:
+#   1. On rubygems.org, add a trusted publisher for the `bone` gem:
+#        Publisher type:    GitHub Actions
+#        Repository owner:  solutious
+#        Repository name:   bone
+#        Workflow filename: release-gem.yml
+#        Environment:       rubygems.org
+#   2. In GitHub: Settings -> Environments -> New environment `rubygems.org`,
+#      and restrict its deployment tags to `v*.*.*`.
+#
+# Cutting a release:
+#   1. Bump Bone::VERSION in lib/bone/version.rb.
+#   2. Update CHANGES.txt and commit on main.
+#   3. Draft and publish a GitHub Release with tag `vX.Y.Z` (matching the
+#      constant). This workflow verifies the tag, builds, and pushes the gem.
+
+name: Release Gem
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gem-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and push gem
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    environment:
+      name: rubygems.org
+      url: https://rubygems.org/gems/bone
+
+    permissions:
+      contents: write   # attach the built .gem to the GitHub release
+      id-token: write   # OIDC token for RubyGems Trusted Publishing
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+          ruby-version: "3.3"
+
+      - name: Verify release tag matches Bone::VERSION
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          case "${RELEASE_TAG}" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "Release tag '${RELEASE_TAG}' is not a vMAJOR.MINOR.PATCH tag." >&2
+              exit 1
+              ;;
+          esac
+          tag_version="${RELEASE_TAG#v}"
+          gem_version="$(ruby -r ./lib/bone/version.rb -e 'print Bone::VERSION.to_s')"
+          if [ "${tag_version}" != "${gem_version}" ]; then
+            echo "Release tag ${RELEASE_TAG} (${tag_version}) != Bone::VERSION (${gem_version})." >&2
+            exit 1
+          fi
+          echo "Releasing bone ${gem_version} from tag ${RELEASE_TAG}"
+
+      - name: Build and push gem to RubyGems
+        uses: rubygems/release-gem@v1
