@@ -1,5 +1,29 @@
 BONE, CHANGES
 
+#### 0.4.0 (2026-07-10) ###############################
+
+NOTE: Ground-up modernization for Ruby 3.2+. NOT API-compatible with 0.3.x.
+
+* CHANGE: Require Ruby >= 3.2.
+* CHANGE: Reframed as a store of remote environment variables.
+* REMOVED: EventMachine / em-http-request HTTP backend (the `boned` daemon it
+           targeted no longer exists). The signed REST API design is archived
+           in docs/http-rest-api.md for future reference.
+* CHANGE: Redis backend rewritten against Familia v2 (Familia::Horreum); each
+          token now stores its variables as a single `hashkey :vars`.
+* CHANGE: CLI reimplemented on Dry::CLI (vendored `drydock` removed).
+* CHANGE: Packaging modernized — hand-written gemspec + lib/bone/version.rb
+          (jeweler and VERSION.yml removed).
+* SECURITY: Token/secret generation now uses SecureRandom (was Kernel#rand).
+* ADDED: Remote env-var layer — `bone env`, `bone export`, `bone import`, and
+         Ruby helpers `Bone.env`, `Bone.export`, `Bone.import`, `Bone.load_env!`.
+* ADDED: `valkey://` and `rediss://` source schemes.
+* ADDED: GitHub Actions CI (Tryouts on a Valkey service, Ruby 3.2–3.4 matrix),
+         RuboCop + Reek lint workflow, trusted-publishing release workflow, and
+         Dependabot.
+* REMOVED: Ruby 1.8/1.9 compatibility shims.
+
+
 #### 0.3.2 (2010-12-20) ###############################
 
 * ADDED: Updated canonical_host handling for String input
@@ -12,8 +36,8 @@ BONE, CHANGES
 #### 0.3.0 (2010-12-17) ###############################
 
 NOTE: This is a complete rewrite. It is not compatible
-      with previous versions. 
-      
+      with previous versions.
+
 
 #### 0.2.6 (2010-02-20) ###############################
 
@@ -35,8 +59,8 @@ NOTE: This is a complete rewrite. It is not compatible
 
 * CHANGE: Bone.get and Bone[] no longer raise an exception for unknown keys
 * CHANGE: Bone.set and Bone[]= no longer raise an exception for unknown keys
-* ADDED: Bone.get! to raise exception for unknown keys. 
-* ADDED: Bone.set! to raise exception for unknown keys. 
+* ADDED: Bone.get! to raise exception for unknown keys.
+* ADDED: Bone.set! to raise exception for unknown keys.
 
 
 #### 0.2.2 (2010-01-08) ###############################
