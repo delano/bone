@@ -27,6 +27,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'dry-cli', '~> 1.2'
   spec.add_dependency 'familia', '~> 2.11'
+  spec.add_dependency 'base64'
 
   spec.metadata['rubygems_mfa_required'] = 'true'
   spec.metadata['homepage_uri']          = spec.homepage
