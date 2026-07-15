@@ -26,3 +26,19 @@ Bone.random_token(40).match?(/\A[A-Za-z0-9]+\z/)
 ## two secrets differ
 Bone.random_secret != Bone.random_secret
 #=> true
+
+# -- F9: backend selection --------------------------------------------------
+
+## An unregistered scheme raises UnknownBackend (source= selects eagerly)
+begin
+  Bone.source = 'ftp://nope'
+  false
+rescue Bone::UnknownBackend
+  true
+end
+#=> true
+
+## A known scheme selects a backend without raising (restores clean state)
+Bone.source = 'memory://localhost'
+Bone.source.scheme
+#=> 'memory'
