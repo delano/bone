@@ -17,14 +17,21 @@
 
 require 'bone'
 
-# Probe connectivity once. Any failure (server down, familia missing) degrades
-# to a clean skip rather than a hard error. Setting the source only selects the
-# backend (lazy); token? forces a real connection but writes nothing.
+# Probe connectivity once. Setting the source only selects the backend (lazy);
+# token? forces a real connection but writes nothing.
+#
+# Skip vs. fail: a probe failure degrades to a clean skip ONLY for the local
+# default source. When BONE_SOURCE is set explicitly (CI), the caller is
+# asserting a backend is present, so any probe failure -- server down, familia
+# missing, or an implementation error masquerading as a connection error -- is
+# a hard failure. Otherwise CI could go green without ever exercising Redis.
+@explicit_source = !ENV['BONE_SOURCE'].to_s.empty?
 Bone.source = ENV['BONE_SOURCE'] || 'redis://127.0.0.1:6379/15'
 @redis_up = begin
   Bone.token?('__connectivity_probe__')
   true
 rescue LoadError, StandardError => e
+  raise if @explicit_source
   # Write to the real STDERR (fd 2): Tryouts captures $stderr during setup, so
   # `warn` here would be swallowed and the skip would be silent.
   STDERR.puts "# SKIP: no Redis/Valkey at #{Bone.source} (#{e.class}: #{e.message})"
@@ -42,11 +49,14 @@ def check
 end
 
 ## Selects the redis backend
-Bone.backend
-#=> Bone::Backends::Redis
+# Wrapped in check: resolving the backend and its lazily-defined model both
+# load familia, so an unguarded call would error (not skip) when the backend
+# is unavailable.
+check { Bone.backend == Bone::Backends::Redis }
+#=> true
 
 ## The lazily-defined Token model is a Familia::Horreum
-Bone::Backends::Redis.model.ancestors.include?(Familia::Horreum)
+check { Bone::Backends::Redis.model.ancestors.include?(Familia::Horreum) }
 #=> true
 
 ## Generates and registers a token
@@ -174,8 +184,22 @@ check { Bone[:STAGING_URL] == 'https://staging.example.com' }
 # reconnect and raise when the server is down, turning a clean skip into an
 # infrastructure failure) and wrapped so a mid-file failure can never leak a
 # token; the ensure clears the accumulator regardless.
+#
+# A broken destroy would otherwise leave credentials in the selected DB with no
+# signal. Attempt every token, then report leaks loudly on STDERR (fd 2, which
+# Tryouts does not capture) rather than swallowing each error silently.
 begin
-  @tokens.each { |t| Bone.destroy(t) rescue nil } if @redis_up
+  @teardown_failures = []
+  if @redis_up
+    @tokens.each do |t|
+      Bone.destroy(t)
+    rescue StandardError => e
+      @teardown_failures << "#{t} (#{e.class}: #{e.message})"
+    end
+  end
 ensure
   @tokens.clear
+end
+unless @teardown_failures.empty?
+  STDERR.puts "# TEARDOWN: #{@teardown_failures.size} token(s) leaked in #{Bone.source}: #{@teardown_failures.join(', ')}"
 end
