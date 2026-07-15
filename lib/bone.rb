@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'securerandom'
-require 'openssl'
 require 'uri'
 
 require_relative 'bone/version'
@@ -159,10 +158,6 @@ class Bone
 
     def random_secret(bytes = 48)
       SecureRandom.urlsafe_base64(bytes)
-    end
-
-    def digest(value, type = OpenSSL::Digest::SHA256)
-      type.hexdigest(value.to_s)
     end
   end
 
