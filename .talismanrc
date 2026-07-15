@@ -1,0 +1,12 @@
+# .talismanrc
+#
+# @see:
+# https://thoughtworks.github.io/talisman/docs/configuring-talisman/ignoring/
+# https://thoughtworks.github.io/talisman/docs/configuring-talisman/severity-threshold/
+#
+# Entries under fileignoreconfig are appended by talisman when you accept a
+# detection (talisman prints the exact filename + checksum to paste here).
+#
+threshold: medium
+fileignoreconfig: []
+version: ""
