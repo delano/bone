@@ -7,10 +7,22 @@ class Bone
   # These are pure functions over hashes and strings; they perform no I/O and
   # never touch a backend. {Bone} and {Bone::Client} wire them to storage.
   module Env
+    # A valid variable name: a POSIX shell / env identifier. Names are
+    # validated against this at the write boundary and again before being
+    # emitted, so a crafted name can never inject shell into eval-able output.
+    # Keep in sync with the name sub-pattern in LINE below.
+    NAME = /\A[A-Za-z_][A-Za-z0-9_]*\z/
     LINE = /\A\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*\z/
     NEEDS_DQUOTE = %r{[^A-Za-z0-9_./@%+=:,-]}
 
     module_function
+
+    # @return [Boolean] whether +name+ is a valid variable name (matches NAME).
+    #   Callers validate at the write boundary so unsafe names never reach the
+    #   store, and thus never reach eval-able `export`/`dump` output.
+    def valid_name?(name)
+      name.to_s.match?(NAME)
+    end
 
     # Parse dotenv-style text into a { name => value } hash.
     #
@@ -45,9 +57,17 @@ class Bone
 
     # -- internals -----------------------------------------------------------
 
+    # Render sorted, newline-terminated lines via the given block. Guards the
+    # key of every line: a name that is not a valid identifier could inject
+    # shell once the output is eval'd, so we raise rather than emit it. This is
+    # the emit-time backstop to the write-boundary check in Bone::Client#set.
     def format_lines(vars)
-      lines = vars.sort_by { |k, _| k.to_s }
-                  .map { |k, v| yield(k.to_s, v.to_s) }
+      lines = vars.sort_by { |k, _| k.to_s }.map do |k, v|
+        key = k.to_s
+        raise Bone::InvalidName, key.inspect unless valid_name?(key)
+
+        yield(key, v.to_s)
+      end
       "#{lines.join("\n")}\n"
     end
 

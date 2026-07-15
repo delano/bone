@@ -177,7 +177,10 @@ class Bone
     alias [] get
 
     def set(name, value)
-      backend.set(require_token!, secret, name, value)
+      key = name.to_s
+      raise Bone::InvalidName, key.inspect unless Bone::Env.valid_name?(key)
+
+      backend.set(require_token!, secret, key, value)
     end
     alias []= set
 
