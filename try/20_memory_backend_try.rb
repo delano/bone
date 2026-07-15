@@ -76,3 +76,37 @@ Bone.key?(:port)
 Bone.destroy('atoken')
 Bone.token?('atoken')
 #=> false
+
+# -- F4/F5: unknown-token read contract (must match the Redis backend) ----
+# Reading through a token that is not in the store returns benign defaults;
+# only WRITING to it raises. (Memory used to raise on these reads.)
+
+## Unknown token in store: get returns nil (reads never raise)
+@unknown = Bone::Client.new('no-such-token')
+@unknown.get(:anything)
+#=> nil
+
+## Unknown token in store: keys returns empty
+@unknown.keys
+#=> []
+
+## Unknown token in store: key? returns false
+@unknown.key?(:anything)
+#=> false
+
+## Unknown token in store: to_h returns empty
+@unknown.to_h
+#=> {}
+
+## Unknown token in store: delete returns false
+@unknown.delete(:anything)
+#=> false
+
+## Unknown token in store: only set raises (NoToken)
+begin
+  @unknown.set(:anything, 'v')
+  false
+rescue Bone::NoToken
+  true
+end
+#=> true

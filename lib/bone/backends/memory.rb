@@ -53,32 +53,42 @@ class Bone
       end
 
       def get(token, _secret, name)
-        vars(token)[name.to_s]
+        vars_or_empty(token)[name.to_s]
       end
 
       def set(token, _secret, name, value)
-        vars(token)[name.to_s] = value.to_s
+        require_vars(token)[name.to_s] = value.to_s
       end
 
       def delete(token, _secret, name)
-        !vars(token).delete(name.to_s).nil?
+        !vars_or_empty(token).delete(name.to_s).nil?
       end
 
       def keys(token, _secret)
-        vars(token).keys
+        vars_or_empty(token).keys
       end
 
       def key?(token, _secret, name)
-        vars(token).key?(name.to_s)
+        vars_or_empty(token).key?(name.to_s)
       end
 
       def all(token, _secret)
-        vars(token).dup
+        vars_or_empty(token).dup
       end
 
       private
 
-      def vars(token)
+      # Non-raising read path: an unknown token yields an empty bag, so reads
+      # return the benign defaults the backend contract promises (nil / [] /
+      # false / {}) — matching the Redis backend. See F4/F5 in the 2026-07 audit.
+      def vars_or_empty(token)
+        entry = @store[token.to_s]
+        entry ? entry[:vars] : {}
+      end
+
+      # Raising write path: writing to an unknown token is an error on both
+      # backends (mirrors Redis's require_token).
+      def require_vars(token)
         entry = @store[token.to_s]
         raise Bone::NoToken, token.to_s if entry.nil?
 
