@@ -122,7 +122,7 @@ class Bone
         configure(options)
         print Bone.dump
       rescue Bone::InvalidName => e
-        abort_with("Refusing to emit: stored variable name is not a valid " \
+        abort_with('Refusing to emit: stored variable name is not a valid ' \
                    "identifier (#{e.message})")
       end
     end
@@ -136,7 +136,7 @@ class Bone
         configure(options)
         print Bone.export
       rescue Bone::InvalidName => e
-        abort_with("Refusing to emit: stored variable name is not a valid " \
+        abort_with('Refusing to emit: stored variable name is not a valid ' \
                    "identifier (#{e.message})")
       end
     end
