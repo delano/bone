@@ -12,4 +12,9 @@ class Bone
 
   # Raised when a token is already registered.
   class TokenExists < Problem; end
+
+  # Raised when a variable name is not a valid shell/env identifier (does not
+  # match Bone::Env::NAME). Guards the eval-able output of `export`/`dump`
+  # against shell injection via crafted key names.
+  class InvalidName < Problem; end
 end

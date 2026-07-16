@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'securerandom'
-require 'openssl'
 require 'uri'
 
 require_relative 'bone/version'
@@ -160,10 +159,6 @@ class Bone
     def random_secret(bytes = 48)
       SecureRandom.urlsafe_base64(bytes)
     end
-
-    def digest(value, type = OpenSSL::Digest::SHA256)
-      type.hexdigest(value.to_s)
-    end
   end
 
   # A client bound to a token/secret pair. Instances are what actually read
@@ -182,7 +177,10 @@ class Bone
     alias [] get
 
     def set(name, value)
-      backend.set(require_token!, secret, name, value)
+      key = name.to_s
+      raise Bone::InvalidName, key.inspect unless Bone::Env.valid_name?(key)
+
+      backend.set(require_token!, secret, key, value)
     end
     alias []= set
 

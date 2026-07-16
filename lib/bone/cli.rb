@@ -82,6 +82,9 @@ class Bone
         value = $stdin.read if value.nil? && !$stdin.tty?
         abort_with('No value given') if value.nil?
         puts Bone[name] = value
+      rescue Bone::InvalidName
+        abort_with("Invalid variable name: #{name.inspect} " \
+                   '(must match /\A[A-Za-z_][A-Za-z0-9_]*\z/)')
       end
     end
 
@@ -118,6 +121,9 @@ class Bone
       def call(**options)
         configure(options)
         print Bone.dump
+      rescue Bone::InvalidName => e
+        abort_with('Refusing to emit: stored variable name is not a valid ' \
+                   "identifier (#{e.message})")
       end
     end
 
@@ -129,6 +135,9 @@ class Bone
       def call(**options)
         configure(options)
         print Bone.export
+      rescue Bone::InvalidName => e
+        abort_with('Refusing to emit: stored variable name is not a valid ' \
+                   "identifier (#{e.message})")
       end
     end
 
